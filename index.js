@@ -26,7 +26,7 @@ const redisClients = [
         host: process.env.REDIS_HOST_1,
         port: process.env.REDIS_PORT_1,
         socket: {
-            reconnectStrategy: reconStrat(),
+            reconnectStrategy: (retries) => reconStrat(retries),
             connectTimeout: 10000, // ms
         },
     }),
@@ -34,7 +34,7 @@ const redisClients = [
         host: process.env.REDIS_HOST_2,
         port: process.env.REDIS_PORT_2,
         socket: {
-            reconnectStrategy: reconStrat(),
+            reconnectStrategy: (retries) => reconStrat(retries),
             connectTimeout: 10000,
         },
     }),
@@ -42,7 +42,7 @@ const redisClients = [
         host: process.env.REDIS_HOST_3,
         port: process.env.REDIS_PORT_3,
         socket: {
-            reconnectStrategy: reconStrat(),
+            reconnectStrategy: (retries) => reconStrat(retries),
             connectTimeout: 10000,
         },
     }),
@@ -51,7 +51,7 @@ const redisClients = [
 // set client error handling
 redisClients.map((client) => {
     client.on("error", (err) => console.log("Redis Client Error:", err));
-
+    
     return client;
 });
 
@@ -85,17 +85,22 @@ async function getOriginalUrl(req, res) {
 
     await redisClient.connect();
 
-    redisClient.get(shortId, (err, url) => {
+    redisClient.get(req.params.shortId, (err, url) => {
         if (err || !url) {
+            console.log("- cache miss: short id", shortId);
+            
             return res.status(400).send("ID Not Found");
         }
 
+        console.log("- cache hit: short id", shortId);
+        
         return res.redirect(url);
     });
 }
 
 async function shortenUrl(req, res) {
     if (!req.body?.url) {
+        
         return res.status(400).send("URL is required");
     }
 
