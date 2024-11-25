@@ -1,64 +1,20 @@
-import redis from "redis";
 import dotenv from "dotenv";
-import { nanoid } from "nanoid";
+import cors from "cors";
 import express from "express";
-
-dotenv.config();
+import { getOriginalUrl } from "./classes/originalUrl.mjs";
+import { shortenUrl } from "./classes/shortenUrl.mjs";
 
 const app = express();
+
+dotenv.config();
 app.use(express.json());
-
-// handling reconnections
-const reconStrat = (retries) => {
-    if (retries < 20) {
-        return retries * 500;
-    }
-
-    console.log(
-        "Too many attempts to reconnect. Redis connection was terminated"
-    );
-
-    return new Error("Too many retries.");
-};
-
-const redisClients = [
-    redis.createClient({
-        host: process.env.REDIS_HOST_1,
-        port: process.env.REDIS_PORT_1,
-        socket: {
-            reconnectStrategy: (retries) => reconStrat(retries),
-            connectTimeout: 10000, // ms
-        },
-    }),
-    redis.createClient({
-        host: process.env.REDIS_HOST_2,
-        port: process.env.REDIS_PORT_2,
-        socket: {
-            reconnectStrategy: (retries) => reconStrat(retries),
-            connectTimeout: 10000,
-        },
-    }),
-    redis.createClient({
-        host: process.env.REDIS_HOST_3,
-        port: process.env.REDIS_PORT_3,
-        socket: {
-            reconnectStrategy: (retries) => reconStrat(retries),
-            connectTimeout: 10000,
-        },
-    }),
-];
-
-// set client error handling
-redisClients.map((client) => {
-    client.on("error", (err) => console.log("Redis Client Error:", err));
-    
-    return client;
-});
+app.use(cors());
+app.use(express.static("public"));
 
 // ENDPOINTS
 
 // GET home
-app.get("/", (req, res) => res.send("Hello World!"));
+app.get("/", (_req, res) => res.sendFile("/index.html"));
 
 // GET original url
 app.get("/:shortId", (req, res) => getOriginalUrl(req, res));
@@ -70,49 +26,3 @@ app.post("/shorten", (req, res) => shortenUrl(req, res));
 app.listen(process.env.PORT, () => {
     console.log(`Listening on port: ${process.env.PORT}`);
 });
-
-// HELPERS
-function getRedisClient(key) {
-    let accum = (acc, char) => acc + char.charCodeAt(0);
-    let hash = key.split("").reduce(accum, 0);
-    let mod = hash % redisClients.length;
-
-    return redisClients[mod];
-}
-
-async function getOriginalUrl(req, res) {
-    let redisClient = getRedisClient(req.params.shortId);
-
-    await redisClient.connect();
-
-    redisClient.get(req.params.shortId, (err, url) => {
-        if (err || !url) {
-            console.log("- cache miss: short id", shortId);
-            
-            return res.status(400).send("ID Not Found");
-        }
-
-        console.log("- cache hit: short id", shortId);
-        
-        return res.redirect(url);
-    });
-}
-
-async function shortenUrl(req, res) {
-    if (!req.body?.url) {
-        
-        return res.status(400).send("URL is required");
-    }
-
-    let shortId = nanoid();
-    let redisClient = getRedisClient(shortId);
-
-    await redisClient.connect();
-
-    // "EX" = seconds, ttl = (time-to-live), default 1 hour to invalidate cache
-    await redisClient.set(shortId, req.body.url, "EX", req.body?.ttl || 3600);
-
-    return res.json({
-        shortUrl: `http://localhost:${process.env.PORT}/${shortId}`,
-    });
-}
